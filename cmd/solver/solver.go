@@ -2,8 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"math"
-	"reflect"
+	"os"
+	"os/signal"
+	"runtime"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/coreyog/sslfsr"
@@ -21,25 +26,83 @@ func main() {
 		fmt.Printf("DONE: %s\n", time.Since(start))
 	}()
 
-	working := []int{}
-
-	stat, err := statux.New(1)
+	cpus := runtime.NumCPU()
+	stat, err := statux.New(cpus)
 	if err != nil {
 		panic(err)
 	}
 
 	lines := stat.BuildLineWriters()
-	line := lines[0]
 
-	for interval := 2; interval < 100; interval++ {
-		line.WriteString(fmt.Sprintf("%d - Building Calculator...", interval))
+	intervals := make(chan int, cpus*2)
+	working := make(chan int, cpus)
+	wg := &sync.WaitGroup{}
+	wg.Add(cpus)
+
+	for i := 0; i < cpus; i++ {
+		go worker(lines[i], wg, intervals, working)
+	}
+
+	results := []int{}
+	go func() {
+		for w := range working {
+			results = append(results, w)
+		}
+	}()
+
+	ctrlc := make(chan os.Signal)
+	signal.Notify(ctrlc, os.Interrupt)
+	safety := sync.WaitGroup{}
+	go func() {
+		<-ctrlc
+		safety.Add(1)
+		stat.Finish()
+		sort.Ints(results)
+		fmt.Println(results)
+		fmt.Println()
+		fmt.Printf("DONE: %s\n", time.Since(start))
+		os.Exit(1)
+	}()
+
+	for interval := 2; interval < math.MaxUint16; interval++ {
+		intervals <- interval
+	}
+
+	close(intervals)
+	safety.Wait()
+	wg.Wait()
+	safety.Wait()
+	close(working)
+	safety.Wait()
+
+	sort.Ints(results)
+	safety.Wait()
+
+	stat.Finish()
+
+	var out io.Writer
+
+	outfile, err := os.Open("results.txt")
+	if err != nil {
+		out = os.Stdout
+	} else {
+		out = io.MultiWriter(os.Stdout, outfile)
+	}
+
+	_, _ = out.Write([]byte(fmt.Sprintf("%v\n", results)))
+	_, _ = out.Write([]byte(fmt.Sprintf("working count: %d\n", len(results))))
+}
+
+func worker(logger io.StringWriter, wg *sync.WaitGroup, todo <-chan int, working chan<- int) {
+	for interval := range todo {
+		_, _ = logger.WriteString(fmt.Sprintf("%d - Building Calculator...", interval))
 
 		calculator := build16BitCalculator(interval)
 
 		value := uint16(1)
 		count := 1
 
-		line.WriteString(fmt.Sprintf("%d - Calculatoring...", interval))
+		_, _ = logger.WriteString(fmt.Sprintf("%d - Calculatoring...", interval))
 
 		visited := map[uint16]struct{}{}
 		visited[value] = struct{}{}
@@ -58,33 +121,11 @@ func main() {
 		}
 
 		if count == expectedStateChanges {
-			working = append(working, interval)
+			working <- interval
 		}
 	}
-
-	line.WriteString("FINISHED")
-	stat.Finish()
-
-	fmt.Println(working)
-	fmt.Printf("working count: %d\n", len(working))
-	match := reflect.DeepEqual(working, []int{7, 66, 99})
-	fmt.Printf("Match: %t\n", match)
-}
-
-func build8BitCalculator(interval int) (calc map[uint8]uint8) {
-	calc = map[uint8]uint8{}
-
-	for i := 1; i <= math.MaxUint8; i++ {
-		b := uint8(i)
-
-		for j := 0; j < interval; j++ {
-			b = shift8Bits(b)
-		}
-
-		calc[uint8(i)] = subshift8Bits(b)
-	}
-
-	return calc
+	_, _ = logger.WriteString("DONE")
+	wg.Done()
 }
 
 func build16BitCalculator(interval int) (calc map[uint16]uint16) {
@@ -125,24 +166,40 @@ func subshift16Bits(value uint16) uint16 {
 	return lower | higher
 }
 
-func shift8Bits(value byte) byte {
-	bit := sslfsr.GetBit(value, 0) != sslfsr.GetBit(value, 2) != sslfsr.GetBit(value, 3) != sslfsr.GetBit(value, 4)
-	value = value >> 1
-	if bit {
-		value = value | 0x80
-	}
+// func build8BitCalculator(interval int) (calc map[uint8]uint8) {
+// 	calc = map[uint8]uint8{}
 
-	return value
-}
+// 	for i := 1; i <= math.MaxUint8; i++ {
+// 		b := uint8(i)
 
-func subshift8Bits(value byte) byte {
-	bit := sslfsr.GetBit(value, 0) != sslfsr.GetBit(value, 1)
-	higher := value & 0xF0
-	lower := value & 0x0F
-	lower = lower >> 1
-	if bit {
-		lower = lower | 0x8
-	}
+// 		for j := 0; j < interval; j++ {
+// 			b = shift8Bits(b)
+// 		}
 
-	return lower | higher
-}
+// 		calc[uint8(i)] = subshift8Bits(b)
+// 	}
+
+// 	return calc
+// }
+
+// func shift8Bits(value byte) byte {
+// 	bit := sslfsr.GetBit(value, 0) != sslfsr.GetBit(value, 2) != sslfsr.GetBit(value, 3) != sslfsr.GetBit(value, 4)
+// 	value = value >> 1
+// 	if bit {
+// 		value = value | 0x80
+// 	}
+
+// 	return value
+// }
+
+// func subshift8Bits(value byte) byte {
+// 	bit := sslfsr.GetBit(value, 0) != sslfsr.GetBit(value, 1)
+// 	higher := value & 0xF0
+// 	lower := value & 0x0F
+// 	lower = lower >> 1
+// 	if bit {
+// 		lower = lower | 0x8
+// 	}
+
+// 	return lower | higher
+// }
