@@ -107,16 +107,17 @@ func main() {
 
 	// prepare for interruptions
 	ctrlc := make(chan os.Signal)
-	signal.Notify(ctrlc, os.Interrupt)
+	signal.Notify(ctrlc, os.Interrupt, os.Kill)
 	safety := sync.WaitGroup{} // after ctrl+c, this will stop main thread
 	go func() {
-		<-ctrlc                                  // notice interrupt
-		end := time.Now()                        // prepare for timing output
-		safety.Add(1)                            // stop main thread
-		stat.Finish()                            // dispose of multiplex logging
-		sort.Ints(results)                       // prepare...
-		fmt.Println(results)                     //   and print results
-		fmt.Println()                            // easy to read output
+		<-ctrlc           // notice interrupt
+		end := time.Now() // prepare for timing output
+		safety.Add(1)     // stop main thread
+		stat.Finish()     // dispose of multiplex logging
+		// sort.Ints(results)                       // prepare...
+		// fmt.Println(results)                     //   and print results
+		// fmt.Println()                            // easy to read output
+		wrapup(results)
 		fmt.Printf("DONE: %s\n", end.Sub(start)) // time execution output
 		os.Exit(1)                               // drop everything and quit
 	}()
