@@ -106,8 +106,8 @@ func main() {
 	}()
 
 	// prepare for interruptions
-	ctrlc := make(chan os.Signal)
-	signal.Notify(ctrlc, os.Interrupt, os.Kill)
+	ctrlc := make(chan os.Signal, 1)
+	signal.Notify(ctrlc, os.Interrupt)
 	safety := sync.WaitGroup{} // after ctrl+c, this will stop main thread
 	go func() {
 		<-ctrlc           // notice interrupt
