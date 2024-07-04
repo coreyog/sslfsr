@@ -1,1 +1,3 @@
-go-sslfsr
+# SSLFSR
+
+SubShifting Linear Feedback Shift Register

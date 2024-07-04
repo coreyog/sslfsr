@@ -2,82 +2,90 @@ package sslfsr
 
 import (
 	"math"
+	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
+func TestSettersAndGetters8Bits(t *testing.T) {
+	t.Parallel()
+
+	reg := BuildSSLFSR8(1, 2, 3)
+
+	assert.Equal(t, uint8(1), reg.GetRegister())
+	assert.Equal(t, uint8(2), reg.GetInterval())
+	assert.Equal(t, uint8(3), reg.GetCounter())
+}
+
 func Test8BitShift(t *testing.T) {
-	x := NewSSLFSR8(0)
-	start := x.register
-	for i := 0; i < 255; i++ {
-		x.Shift()
-	}
-	if x.register != start {
-		t.Error("254 shifts should result in starting state")
+	t.Parallel()
+
+	for i := range math.MaxUint8 + 1 {
+		reg := NewSSLFSR8(0) // not using interval
+		reg.register = uint8(i)
+
+		for range math.MaxUint8 {
+			reg.Shift()
+		}
+
+		assert.Equal(t, uint8(i), reg.register, "255 shifts should result in starting state")
 	}
 }
 
 func Test8BitSubShift(t *testing.T) {
-	x := NewSSLFSR8(0)
-	start := x.register
-	for i := 0; i < 15; i++ {
-		x.SubShift()
-	}
-	if x.register != start {
-		t.Error("14 subshifts should result in starting state")
-	}
-}
+	t.Parallel()
 
-func Test8BitNext(t *testing.T) {
-	x := NewSSLFSR8(11)
-	start := x.register
+	for i := range math.MaxUint8 + 1 {
+		reg := NewSSLFSR8(0)
+		reg.register = uint8(i)
 
-	x.Next()
-	count := 1
-	for x.register != start || x.counter != 0 {
-		x.Next()
-		count++
-	}
-	expected := (math.Pow(2, 8) - 1) * 12
-	if float64(count) != expected {
-		t.Error("should return to start state in ((2^8)-1)(11+1) state changes, expected:", expected, "actual:", count)
+		for range math.MaxUint8 {
+			reg.SubShift()
+		}
+
+		assert.Equal(t, uint8(i), reg.register, "255 subshifts should result in starting state")
 	}
 }
 
 func TestIntervals8Bits(t *testing.T) {
+	t.Parallel()
 	intervals := Intervals8Bits()
+
 	for _, interval := range intervals {
-		x := NewSSLFSR8(interval)
-		start := x.register
-		x.Next()
+		reg := NewSSLFSR8(uint8(interval))
+		start := reg.register
+
+		reg.Next()
 		count := 1
-		for x.register != start || x.counter != 0 {
-			x.Next()
+		for reg.register != start || reg.counter != 0 {
+			reg.Next()
 			count++
 		}
-		expected := x.CalculateExpectedMaximalLength()
-		if count != expected {
-			t.Error("interval", interval, "does not work, expected state count:", expected, "actual:", count)
-		}
+
+		assert.Equal(t, reg.CalculateExpectedMaximalLength(), count)
 	}
 }
 
 func TestNonIntervals8Bits(t *testing.T) {
+	t.Parallel()
 	intervals := Intervals8Bits()
-	for i := 2; i <= 255; i++ {
-		if contains(intervals, i) {
+
+	for i := 1; i <= math.MaxUint8; i++ {
+		if slices.Contains(intervals, i) {
 			continue
 		}
-		x := NewSSLFSR8(i)
-		start := x.register
-		x.Next()
+
+		reg := NewSSLFSR8(uint8(i))
+		start := reg.register
+
+		reg.Next()
 		count := 1
-		for x.register != start || x.counter != 0 {
-			x.Next()
+		for reg.register != start || reg.counter != 0 {
+			reg.Next()
 			count++
 		}
-		expected := x.CalculateExpectedMaximalLength()
-		if count == expected {
-			t.Error("interval", i, "works, state count should not be:", expected, "actual:", count)
-		}
+
+		assert.NotEqual(t, reg.CalculateExpectedMaximalLength(), count)
 	}
 }

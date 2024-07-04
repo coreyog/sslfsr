@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/signal"
 	"reflect"
@@ -20,20 +19,20 @@ import (
 
 //go:generate go build "-gcflags=all=-N -l" .
 
-type StateMap [math.MaxUint16 + 1]uint16
+type StateMap [sslfsr.MaxUint4 + 1]uint8
 
 type WorkItem struct {
-	Lut      StateMap
+	LUT      StateMap
 	Interval int
 }
 
-var memoShift16Bits StateMap
-var memoSubshift16Bits StateMap
+var memoShift4Bits StateMap
+var memoSubshift4Bits StateMap
 
 func init() {
-	for i := range math.MaxUint16 + 1 {
-		memoShift16Bits[i] = sslfsr.Shift16Bits(uint16(i))
-		memoSubshift16Bits[i] = sslfsr.SubShift16Bits(uint16(i))
+	for i := range sslfsr.MaxUint4 + 1 {
+		memoShift4Bits[i] = sslfsr.Shift4Bits(uint8(i))
+		memoSubshift4Bits[i] = sslfsr.SubShift4Bits(uint8(i))
 	}
 }
 
@@ -90,11 +89,11 @@ func main() {
 		fmt.Printf("INTERRUPT: %s\n", time.Since(start))
 		safety.Add(1) // stop main thread
 		stat.Finish() // dispose of multiplex logging
-		fmt.Println() // easy to read output
+		fmt.Println()
 		wrapup(results)
 	}()
 
-	build16BitLUTs(luts)
+	build4BitLUTs(luts)
 
 	// indicate to workers that no more input is coming, they will close
 	close(luts)
@@ -102,8 +101,6 @@ func main() {
 	wg.Wait() // wait for workers to finish their final tasks
 	safety.Wait()
 	close(working) // stop gathering results
-	safety.Wait()
-
 	safety.Wait()
 
 	stat.Finish() // dispose of multiplex logging
@@ -117,7 +114,7 @@ func wrapup(results []int) {
 
 	var out io.Writer // tee output results
 
-	outfile, err := os.Create("results16.txt")
+	outfile, err := os.Create("results4.txt")
 	if err != nil {
 		out = os.Stdout
 	} else {
@@ -126,10 +123,10 @@ func wrapup(results []int) {
 
 	bufout := bufio.NewWriter(out)
 
-	_, _ = bufout.WriteString(fmt.Sprintf("tested intervals: [%d, %d)\n", 0, math.MaxUint16))
+	_, _ = bufout.WriteString(fmt.Sprintf("tested intervals: [%d, %d)\n", 0, sslfsr.MaxUint4))
 	_, _ = bufout.WriteString(fmt.Sprintf("%v\n", results))
 	_, _ = bufout.WriteString(fmt.Sprintf("working count: %d\n", len(results)))
-	match := reflect.DeepEqual(sslfsr.Intervals16Bits(), results)
+	match := reflect.DeepEqual(sslfsr.Intervals4Bits(), results)
 	_, _ = bufout.WriteString(fmt.Sprintf("matches expected results: %t\n", match))
 
 	bufout.Flush()
@@ -146,15 +143,15 @@ func worker(logger io.StringWriter, todo <-chan *WorkItem, working chan<- int, w
 	for work := range todo {
 		_, _ = logger.WriteString(strconv.Itoa(work.Interval))
 
-		value := uint16(1)
+		value := uint8(1)
 		count := 0
 
-		visited := [math.MaxUint16 + 1]bool{}
+		visited := [sslfsr.MaxUint4 + 1]bool{}
 		var fail bool
 
-		for range math.MaxUint16 {
+		for range sslfsr.MaxUint4 {
 			count++
-			value = work.Lut[value] // shift, shift, ..., subshift = 1 interval
+			value = work.LUT[value] // shift, shift, ..., subshift = 1 interval
 
 			if visited[value] {
 				fail = true
@@ -172,24 +169,24 @@ func worker(logger io.StringWriter, todo <-chan *WorkItem, working chan<- int, w
 	_, _ = logger.WriteString("DONE")
 }
 
-func build16BitLUTs(c chan *WorkItem) {
+func build4BitLUTs(c chan *WorkItem) {
 	var shuttle StateMap
 	for i := range shuttle {
-		shuttle[i] = uint16(i)
+		shuttle[i] = uint8(i)
 	}
 
-	for interval := 1; interval < math.MaxUint16; interval++ {
+	for interval := 1; interval < sslfsr.MaxUint4; interval++ {
 		var lut StateMap
-		for i := 1; i <= math.MaxUint16; i++ {
+		for i := 1; i <= sslfsr.MaxUint4; i++ {
 			s := &shuttle[i]
 
-			*s = memoShift16Bits[*s]
+			*s = memoShift4Bits[*s]
 
-			lut[i] = memoSubshift16Bits[*s]
+			lut[i] = memoSubshift4Bits[*s]
 		}
 
 		c <- &WorkItem{
-			Lut:      lut,
+			LUT:      lut,
 			Interval: interval,
 		}
 	}

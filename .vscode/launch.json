@@ -5,11 +5,46 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Launch Package",
+      "name": "Launch Solver4",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/solver4"
+    },
+    {
+      "name": "Launch Solver8",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/solver8"
+    },
+    {
+      "name": "Launch Solver16",
       "type": "go",
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/cmd/solver16"
-    }
+    },
+    {
+      "name": "Attach Solver4",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "processId": "solver4"
+    },
+    {
+      "name": "Attach Solver8",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "processId": "solver8"
+    },
+    {
+      "name": "Attach Solver16",
+      "type": "go",
+      "request": "attach",
+      "mode": "local",
+      "processId": "solver16"
+    },
   ]
 }

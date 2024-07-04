@@ -1,12 +1,20 @@
 module github.com/coreyog/sslfsr
 
-go 1.16
+go 1.22
 
 require (
-	github.com/buger/goterm v1.0.0 // indirect
-	github.com/coreyog/statux v0.0.0-20200310012422-4fe0ca760fcb
-	github.com/jessevdk/go-flags v1.5.0
-	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a // indirect
-	golang.org/x/sys v0.0.0-20210525143221-35b2ab0089ea // indirect
-	golang.org/x/term v0.0.0-20210503060354-a79de5458b56 // indirect
+	github.com/coreyog/statux v0.0.0-20230829172535-30f6f43277d6
+	github.com/stretchr/testify v1.9.0
 )
+
+require (
+	github.com/buger/goterm v1.0.4 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
+	golang.org/x/term v0.21.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+replace github.com/coreyog/memoize => ../memoize

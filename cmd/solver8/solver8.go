@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -11,61 +10,40 @@ import (
 	"reflect"
 	"runtime"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/coreyog/sslfsr"
 	"github.com/coreyog/statux"
-	flags "github.com/jessevdk/go-flags"
 )
 
-const (
-	expectedStateChanges = math.MaxUint8
-)
+//go:generate go build "-gcflags=all=-N -l" .
 
-type Arguments struct {
-	Start int `short:"s" default:"2"`
-	End   int `short:"e" default:"255"`
+type StateMap [math.MaxUint8 + 1]uint8
+
+type WorkItem struct {
+	LUT      StateMap
+	Interval int
 }
 
-func (a *Arguments) Validate() (err error) {
-	if a == nil {
-		return errors.New("nil arguments")
-	}
+var memoShift8Bits StateMap
+var memoSubshift8Bits StateMap
 
-	if a.Start < 2 || a.Start > expectedStateChanges {
-		return fmt.Errorf("Start parameter must be between 2 and %d: %d", expectedStateChanges, a.Start)
+func init() {
+	for i := range math.MaxUint8 + 1 {
+		memoShift8Bits[i] = sslfsr.Shift8Bits(uint8(i))
+		memoSubshift8Bits[i] = sslfsr.SubShift8Bits(uint8(i))
 	}
-
-	if a.End < a.Start || a.End > expectedStateChanges {
-		return fmt.Errorf("End parameter must be between Start (%d) and %d: %d", a.Start, expectedStateChanges, a.End)
-	}
-
-	if a.Start == a.End {
-		a.End++
-	}
-
-	return nil
 }
-
-func (a *Arguments) IsFullRange() bool {
-	return a != nil && a.Start == 2 && a.End == expectedStateChanges
-}
-
-var args = &Arguments{}
 
 func main() {
-	_, err := flags.Parse(args)
-	if err != nil {
-		if flags.WroteHelp(err) {
-			os.Exit(0)
+	if len(os.Args) > 1 && os.Args[1] == "--wfd" {
+		fmt.Println("waiting for debugger...")
+		debugger := true
+		for debugger {
+			time.Sleep(100 * time.Millisecond) // breakpoint here
 		}
-		panic(err)
-	}
-
-	err = args.Validate()
-	if err != nil {
-		panic(err)
 	}
 
 	// time execution
@@ -77,24 +55,22 @@ func main() {
 
 	// prepare multiplexed logging
 	cpus := runtime.NumCPU()
-	cpus = int(math.Min(float64(cpus), float64(args.End-args.Start)))
 
 	stat, err := statux.New(cpus)
 	if err != nil {
 		panic(err)
 	}
-
 	lines := stat.BuildLineWriters()
 
 	// setup plumbing
-	intervals := make(chan int, cpus*2)
+	luts := make(chan *WorkItem, cpus*2)
 	working := make(chan int, cpus)
 	wg := &sync.WaitGroup{}
 	wg.Add(cpus)
 
 	// start workers
 	for i := 0; i < cpus; i++ {
-		go worker(lines[i], wg, intervals, working)
+		go worker(lines[i], luts, working, wg)
 	}
 
 	// gather results
@@ -110,21 +86,18 @@ func main() {
 	signal.Notify(ctrlc, os.Interrupt)
 	safety := sync.WaitGroup{} // after ctrl+c, this will stop main thread
 	go func() {
-		<-ctrlc       // notice interrupt
+		<-ctrlc // notice interrupt
+		fmt.Printf("INTERRUPT: %s\n", time.Since(start))
 		safety.Add(1) // stop main thread
 		stat.Finish() // dispose of multiplex logging
 		fmt.Println()
 		wrapup(results)
-		os.Exit(1) // drop everything and quit
 	}()
 
-	// provide input for the workers
-	for interval := args.Start; interval < args.End; interval++ {
-		intervals <- interval
-	}
+	build8BitLUTs(luts)
 
 	// indicate to workers that no more input is coming, they will close
-	close(intervals)
+	close(luts)
 	safety.Wait()
 	wg.Wait() // wait for workers to finish their final tasks
 	safety.Wait()
@@ -151,86 +124,70 @@ func wrapup(results []int) {
 
 	bufout := bufio.NewWriter(out)
 
-	_, _ = bufout.WriteString(fmt.Sprintf("tested intervals: [%d, %d)\n", args.Start, args.End))
+	_, _ = bufout.WriteString(fmt.Sprintf("tested intervals: [%d, %d)\n", 0, math.MaxUint8))
 	_, _ = bufout.WriteString(fmt.Sprintf("%v\n", results))
 	_, _ = bufout.WriteString(fmt.Sprintf("working count: %d\n", len(results)))
-	if args.IsFullRange() {
-		match := reflect.DeepEqual(sslfsr.Intervals8Bits(), results)
-		_, _ = bufout.WriteString(fmt.Sprintf("matches expected results: %t\n", match))
-	}
+	match := reflect.DeepEqual(sslfsr.Intervals8Bits(), results)
+	_, _ = bufout.WriteString(fmt.Sprintf("matches expected results: %t\n", match))
 
 	bufout.Flush()
+
+	if !match {
+		os.Exit(1)
+	}
 }
 
-func worker(logger io.StringWriter, wg *sync.WaitGroup, todo <-chan int, working chan<- int) {
-	for interval := range todo {
-		_, _ = logger.WriteString(fmt.Sprintf("%d - Building Calculator...", interval))
+func worker(logger io.StringWriter, todo <-chan *WorkItem, working chan<- int, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-		calculator := build8BitCalculator(interval)
+	for work := range todo {
+		_, _ = logger.WriteString(strconv.Itoa(work.Interval))
 
 		value := uint8(1)
-		count := 1
+		count := 0
 
-		_, _ = logger.WriteString(fmt.Sprintf("%d - Calculatoring...", interval))
+		visited := [math.MaxUint8 + 1]bool{}
+		var fail bool
 
-		visited := map[uint8]struct{}{}
-		visited[value] = struct{}{}
-
-		value = calculator[value]
-		visited[value] = struct{}{}
-		var ok bool
-		for count < expectedStateChanges {
+		for range math.MaxUint8 {
 			count++
-			value = calculator[value]
-			_, ok = visited[value]
-			if ok {
+			value = work.LUT[value] // shift, shift, ..., subshift = 1 interval
+
+			if visited[value] {
+				fail = true
 				break
 			}
-			visited[value] = struct{}{}
+
+			visited[value] = true
 		}
 
-		if count == expectedStateChanges {
-			working <- interval
+		if !fail {
+			working <- work.Interval
 		}
 	}
+
 	_, _ = logger.WriteString("DONE")
-	wg.Done()
 }
 
-func build8BitCalculator(interval int) (calc map[uint8]uint8) {
-	calc = map[uint8]uint8{}
+func build8BitLUTs(c chan *WorkItem) {
+	var shuttle StateMap
+	for i := range shuttle {
+		shuttle[i] = uint8(i)
+	}
 
-	for i := 1; i <= math.MaxUint8; i++ {
-		b := uint8(i)
+	for interval := 1; interval < math.MaxUint8; interval++ {
+		var lut StateMap
+		for i := 1; i <= math.MaxUint8; i++ {
+			s := &shuttle[i]
 
-		for j := 0; j < interval; j++ {
-			b = shift8Bits(b)
+			*s = memoShift8Bits[*s]
+
+			lut[i] = memoSubshift8Bits[*s]
 		}
 
-		calc[uint8(i)] = subshift8Bits(b)
+		c <- &WorkItem{
+			LUT:      lut,
+			Interval: interval,
+		}
 	}
-
-	return calc
-}
-
-func shift8Bits(value uint8) uint8 {
-	bit := sslfsr.GetBit(value, 0) != sslfsr.GetBit(value, 2) != sslfsr.GetBit(value, 3) != sslfsr.GetBit(value, 4)
-	value = value >> 1
-	if bit {
-		value = value | 0x80
-	}
-
-	return value
-}
-
-func subshift8Bits(value uint8) uint8 {
-	bit := sslfsr.GetBit(value, 0) != sslfsr.GetBit(value, 1)
-	higher := value & 0xF0
-	lower := value & 0x0F
-	lower = lower >> 1
-	if bit {
-		lower = lower | 0x8
-	}
-
-	return lower | higher
 }
