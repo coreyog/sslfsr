@@ -124,7 +124,7 @@ func wrapup(results []int) {
 
 	bufout := bufio.NewWriter(out)
 
-	_, _ = bufout.WriteString(fmt.Sprintf("tested intervals: [%d, %d)\n", 0, math.MaxUint8))
+	_, _ = bufout.WriteString(fmt.Sprintf("tested intervals: [%d, %d]\n", 0, math.MaxUint8))
 	_, _ = bufout.WriteString(fmt.Sprintf("%v\n", results))
 	_, _ = bufout.WriteString(fmt.Sprintf("working count: %d\n", len(results)))
 	match := reflect.DeepEqual(sslfsr.Intervals8Bits(), results)
