@@ -2,6 +2,7 @@ package sslfsr
 
 import "math/bits"
 
+const MaxUint2 = 1<<2 - 1
 const MaxUint4 = 1<<4 - 1
 
 // Intervals4Bits returns a list of known optimum intervals

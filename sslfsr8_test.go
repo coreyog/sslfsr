@@ -40,11 +40,11 @@ func Test8BitSubShift(t *testing.T) {
 		reg := NewSSLFSR8(0)
 		reg.register = uint8(i)
 
-		for range math.MaxUint8 {
+		for range MaxUint4 {
 			reg.SubShift()
 		}
 
-		assert.Equal(t, uint8(i), reg.register, "255 subshifts should result in starting state")
+		assert.Equal(t, uint8(i), reg.register, "15 subshifts should result in starting state")
 	}
 }
 

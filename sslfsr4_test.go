@@ -21,7 +21,7 @@ func Test4BitShift(t *testing.T) {
 	t.Parallel()
 
 	for i := range MaxUint4 + 1 {
-		reg := NewSSLFSR4(0) // not using interval
+		reg := NewSSLFSR4(0)
 		reg.register = uint8(i)
 
 		for range MaxUint4 {
@@ -39,11 +39,11 @@ func Test4BitSubShift(t *testing.T) {
 		reg := NewSSLFSR4(0)
 		reg.register = uint8(i)
 
-		for range MaxUint4 {
+		for range MaxUint2 {
 			reg.SubShift()
 		}
 
-		assert.Equal(t, uint8(i), reg.register, "15 subshifts should result in starting state")
+		assert.Equal(t, uint8(i), reg.register, "3 subshifts should result in starting state")
 	}
 }
 
